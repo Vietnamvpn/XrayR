@@ -306,6 +306,39 @@ func (c *APIClient) ReportNodeStatus(nodeStatus *api.NodeStatus) (err error) {
 
 // ReportNodeOnlineUsers implements the API interface
 func (c *APIClient) ReportNodeOnlineUsers(onlineUserList *[]api.OnlineUser) error {
+	// 1. Nếu không có ai online thì không cần làm gì cả
+	if len(*onlineUserList) == 0 {
+		return nil
+	}
+
+	// 2. Gói danh sách IP lại theo đúng chuẩn mà file UniProxy.php đang chờ
+	// Định dạng sinh ra: [{"user_id": 29, "ip": "120.239.110.81"}]
+	var data []map[string]interface{}
+	for _, user := range *onlineUserList {
+		data = append(data, map[string]interface{}{
+			"user_id": user.UID,
+			"ip":      user.IP,
+		})
+	}
+
+	// 3. Bắn thẳng data qua đường HTTP POST về Web của bác
+	res, err := c.client.R().
+		SetQueryParams(map[string]string{
+			"node_id":   strconv.Itoa(c.NodeID),
+			"node_type": c.NodeType,
+			"token":     c.Key,
+		}).
+		SetBody(data).
+		Post("/api/v1/server/UniProxy/alive") // Gọi vào luồng Alive của file PHP
+
+	if err != nil {
+		return err
+	}
+
+	if res.StatusCode() > 299 {
+		return fmt.Errorf("Báo cáo IP thất bại, Status Code: %d", res.StatusCode())
+	}
+
 	return nil
 }
 
