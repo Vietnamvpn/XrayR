@@ -1,4 +1,4 @@
-name: Vietnamvpn Auto Build
+name: Vietnamvpn Auto Build Full
 
 on:
   push:
@@ -17,19 +17,37 @@ jobs:
         with:
           go-version: '1.22'
 
-      - name: Build và Đóng gói đầy đủ (XrayR-linux-64)
+      - name: Build và Gom đồ đầy đủ
         run: |
           go mod tidy
-          go build -o XrayR -trimpath -ldflags "-s -w" main.go
-          
-          # Tải thêm 2 file dữ liệu địa lý cần thiết
-          curl -L https://github.com/v2fly/geoip/releases/latest/download/geoip.dat -o geoip.dat
-          curl -L https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat -o geosite.dat
-          
-          # Nén tất cả vào file zip với tên có số 64
-          zip XrayR-linux-64.zip XrayR geoip.dat geosite.dat
+          # 1. Tạo một cái túi "build_assets" để gom tất cả vào đây
+          mkdir -p build_assets
 
-      - name: Đẩy hàng lên Release
+          # 2. Build cục lõi XrayR ném vào túi
+          go build -o build_assets/XrayR -trimpath -ldflags "-s -w" main.go
+          
+          # 3. Nhặt các file thông tin cơ bản
+          cp README.md LICENSE build_assets/ 2>/dev/null || true
+
+          # 4. Nhặt sạch các file cấu hình trong thư mục release/config
+          # (Đoạn này cực kỳ quan trọng để install.sh không báo thiếu file)
+          cp release/config/dns.json build_assets/
+          cp release/config/route.json build_assets/
+          cp release/config/custom_outbound.json build_assets/
+          cp release/config/custom_inbound.json build_assets/
+          cp release/config/rulelist build_assets/
+          # Đổi tên file mẫu thành file config.yml chính thức
+          cp release/config/config.yml.example build_assets/config.yml
+
+          # 5. Đi "mua" thêm 2 file dữ liệu địa lý
+          curl -L https://github.com/v2fly/geoip/releases/latest/download/geoip.dat -o build_assets/geoip.dat
+          curl -L https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat -o build_assets/geosite.dat
+          
+          # 6. Đóng gói cái túi đó lại thành file zip
+          cd build_assets
+          zip -9vr ../XrayR-linux-64.zip .
+
+      - name: Đẩy hàng FULL lên Release
         uses: softprops/action-gh-release@v2
         with:
           files: XrayR-linux-64.zip
