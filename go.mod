@@ -1,4 +1,4 @@
-module github.com/XrayR-project/XrayR
+module github.com/Vietnamvpn/XrayR
 
 go 1.25
 
