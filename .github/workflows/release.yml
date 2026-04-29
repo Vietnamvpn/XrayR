@@ -9,21 +9,29 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v4
-        with:
-          go-version: '1.21'
+      - name: Lấy mã nguồn
+        uses: actions/checkout@v4
 
-      - name: Build and Zip
+      - name: Cài đặt Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build và Đóng gói đầy đủ
         run: |
           go mod tidy
-          # Build bản độ của bác
           go build -o XrayR -trimpath -ldflags "-s -w" main.go
-          zip XrayR-linux-64.zip XrayR
+          
+          # Tải thêm 2 file dữ liệu địa lý cần thiết
+          curl -L https://github.com/v2fly/geoip/releases/latest/download/geoip.dat -o geoip.dat
+          curl -L https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat -o geosite.dat
+          
+          # Nén tất cả vào file zip (đặt tên đúng XrayR-linux.zip cho khớp install.sh của bác)
+          zip XrayR-linux.zip XrayR geoip.dat geosite.dat
 
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v1
+      - name: Đẩy hàng lên Release
+        uses: softprops/action-gh-release@v2
         with:
-          files: XrayR-linux-64.zip
+          files: XrayR-linux.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
