@@ -123,11 +123,27 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 			}
 		}
 	}
+
 	var outBoundConfig []*core.OutboundHandlerConfig
-	for _, config := range coreCustomOutboundConfig {
+	for i := range coreCustomOutboundConfig {
+		config := &coreCustomOutboundConfig[i] // Lấy con trỏ để dễ dàng sửa cấu hình bên trong
+
+		// --- BẮT ĐẦU ĐOẠN SỬA LỖI (CHỐNG PANIC UDP) ---
+		if config.StreamSetting != nil && config.StreamSetting.Network != nil {
+			if string(*config.StreamSetting.Network) == "udp" {
+				tcpNet := conf.TransportProtocol("tcp")
+				config.StreamSetting.Network = &tcpNet // Ép udp thành tcp để Xray không bị sập
+			}
+		}
+		// --- KẾT THÚC ĐOẠN SỬA LỖI ---
+
 		oc, err := config.Build()
 		if err != nil {
-			log.Panicf("Failed to understand Outbound config, Please check: https://xtls.github.io/config/outbound.html for help: %s", err)
+			// SỬA log.Panicf THÀNH log.Errorf
+			// Giờ đây nếu 1 node (ví dụ Hysteria) bị lỗi, nó chỉ báo lỗi màu đỏ rồi bỏ qua,
+			// XrayR VẪN TIẾP TỤC CHẠY các node VLESS/Trojan khác bình thường.
+			log.Errorf("Bỏ qua Node bị lỗi cấu hình [Tag: %s, Protocol: %s]: %s", config.Tag, config.Protocol, err)
+			continue
 		}
 		outBoundConfig = append(outBoundConfig, oc)
 	}
