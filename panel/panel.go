@@ -160,6 +160,20 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 							if pwd, exists := srv["password"]; exists {
 								raw["auth"] = pwd
 							}
+
+							// --- ĐOẠN QUAN TRỌNG NHẤT ĐỂ CÓ MẠNG (XỬ LÝ OBFS) ---
+							if obfsRaw, exists := srv["obfs"]; exists {
+								if obfs, ok := obfsRaw.(map[string]interface{}); ok {
+									if obfsType, exists := obfs["type"]; exists {
+										raw["obfs"] = obfsType
+									}
+									if obfsPwd, exists := obfs["password"]; exists {
+										raw["obfsPassword"] = obfsPwd  // Chuẩn của Xray-core
+										raw["obfs_password"] = obfsPwd // Dự phòng
+									}
+								}
+							}
+							// ----------------------------------------------------
 						}
 					}
 
