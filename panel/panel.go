@@ -126,24 +126,23 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 
 	var outBoundConfig []*core.OutboundHandlerConfig
 	for i := range coreCustomOutboundConfig {
-		config := &coreCustomOutboundConfig[i] // Lấy con trỏ để dễ dàng sửa cấu hình
+		config := &coreCustomOutboundConfig[i]
 
-		// --- 1. CHỈ ÉP TCP CHO CÁC GIAO THỨC KHÁC (KHÔNG PHẢI HYSTERIA) ---
-		if config.Protocol != "hysteria" && config.Protocol != "hysteria2" {
-			if config.StreamSetting != nil && config.StreamSetting.Network != nil {
-				if string(*config.StreamSetting.Network) == "udp" {
-					tcpNet := conf.TransportProtocol("tcp")
-					config.StreamSetting.Network = &tcpNet // Ép về TCP ảo để qua mặt Xray
-				}
+		// --- 1. XỬ LÝ MẠNG VÀ TLS (CHỈ CHỈNH NETWORK, GIỮ NGUYÊN TLS) ---
+		if config.StreamSetting != nil && config.StreamSetting.Network != nil {
+			if config.Protocol == "hysteria" || config.Protocol == "hysteria2" {
+				// Với Hysteria: Trả tự do cho QUIC bằng cách xóa Network, NHƯNG GIỮ LẠI TLS
+				config.StreamSetting.Network = nil
+			} else if string(*config.StreamSetting.Network) == "udp" {
+				// Với VLESS/Trojan: Ép về TCP ảo để chống sập Xray
+				tcpNet := conf.TransportProtocol("tcp")
+				config.StreamSetting.Network = &tcpNet
 			}
 		}
 
 		// --- 2. BĂM NHỎ JSON CỦA PANEL THÀNH JSON CHUẨN CỦA XRAY ---
 		if config.Protocol == "hysteria2" || config.Protocol == "hysteria" {
 			config.Protocol = "hysteria" // Đổi tên cho Xray nhận diện
-
-			// XÓA TRẮNG STREAM SETTINGS: Trả lại tự do cho UDP (QUIC)
-			config.StreamSetting = nil
 
 			if config.Settings != nil {
 				var raw map[string]interface{}
@@ -175,6 +174,7 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 									}
 									if obfsPwd, exists := obfs["password"]; exists {
 										raw["obfsPassword"] = obfsPwd // Từ khóa chuẩn bắt buộc của Xray
+										raw["obfs_password"] = obfsPwd
 									}
 								}
 							}
