@@ -128,63 +128,61 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 	for i := range coreCustomOutboundConfig {
 		config := &coreCustomOutboundConfig[i]
 
-		// --- 1. XỬ LÝ MẠNG VÀ TLS (CHỈ CHỈNH NETWORK, GIỮ NGUYÊN TLS) ---
-		if config.StreamSetting != nil && config.StreamSetting.Network != nil {
-			if config.Protocol == "hysteria" || config.Protocol == "hysteria2" {
-				// Với Hysteria: Trả tự do cho QUIC bằng cách xóa Network, NHƯNG GIỮ LẠI TLS
+		// --- 1. XỬ LÝ NETWORK (GIỮ NGUYÊN TLS ĐỂ CÓ SNI) ---
+		if config.StreamSetting != nil {
+			if config.Protocol == "hysteria2" || config.Protocol == "hysteria" {
+				// Chỉ xóa cái ép kiểu Network (để nó tự chạy UDP/QUIC), KHÔNG xóa cả StreamSetting
 				config.StreamSetting.Network = nil
-			} else if string(*config.StreamSetting.Network) == "udp" {
-				// Với VLESS/Trojan: Ép về TCP ảo để chống sập Xray
+
+				// Ép ALPN là h3 để khớp với server Hysteria2
+				if config.StreamSetting.TLSSettings != nil {
+					alpn := conf.StringList([]string{"h3"})
+					config.StreamSetting.TLSSettings.ALPN = &alpn
+				}
+			} else if config.StreamSetting.Network != nil && string(*config.StreamSetting.Network) == "udp" {
+				// Chống Panic cho VLESS/Trojan
 				tcpNet := conf.TransportProtocol("tcp")
 				config.StreamSetting.Network = &tcpNet
 			}
 		}
 
-		// --- 2. BĂM NHỎ JSON CỦA PANEL THÀNH JSON CHUẨN CỦA XRAY ---
+		// --- 2. MAP LẠI JSON SETTINGS CHO ĐÚNG CHUẨN CORE ---
 		if config.Protocol == "hysteria2" || config.Protocol == "hysteria" {
-			config.Protocol = "hysteria" // Đổi tên cho Xray nhận diện
+			config.Protocol = "hysteria"
 
 			if config.Settings != nil {
 				var raw map[string]interface{}
 				if err := json.Unmarshal(*config.Settings, &raw); err == nil {
-					// Bơm phiên bản 2
-					raw["version"] = 2
+					raw["version"] = 2 // Bơm version 2
 
-					// Lôi dữ liệu từ trong mảng servers[0] ra ngoài
 					if servers, ok := raw["servers"].([]interface{}); ok && len(servers) > 0 {
 						if srv, ok := servers[0].(map[string]interface{}); ok {
-
-							// Lấy IP, Port, Password
+							// Map Password sang Auth
+							if pwd, exists := srv["password"]; exists {
+								raw["auth"] = pwd
+							}
+							// Map IP và Port ra ngoài
 							if addr, exists := srv["address"]; exists {
 								raw["address"] = addr
 							}
 							if port, exists := srv["port"]; exists {
 								raw["port"] = port
 							}
-							if pwd, exists := srv["password"]; exists {
-								raw["password"] = pwd
-								raw["auth"] = pwd // Dự phòng cho core dùng từ khóa auth
-							}
 
-							// Lấy thông số OBFS (Salamander)
+							// Xử lý OBFS Salamander
 							if obfsRaw, exists := srv["obfs"]; exists {
 								if obfs, ok := obfsRaw.(map[string]interface{}); ok {
-									if obfsType, exists := obfs["type"]; exists {
-										raw["obfs"] = obfsType
+									if t, ex := obfs["type"]; ex {
+										raw["obfs"] = t
 									}
-									if obfsPwd, exists := obfs["password"]; exists {
-										raw["obfsPassword"] = obfsPwd // Từ khóa chuẩn bắt buộc của Xray
-										raw["obfs_password"] = obfsPwd
+									if p, ex := obfs["password"]; ex {
+										raw["obfsPassword"] = p
 									}
 								}
 							}
 						}
 					}
-
-					// Dọn dẹp mảng servers cũ đi để JSON nhẹ và chuẩn
-					delete(raw, "servers")
-
-					// Đóng gói lại thành cấu hình Settings mới
+					// KHÔNG dùng delete(raw, "servers") để tránh lỗi mất dữ liệu
 					newSettings, _ := json.Marshal(raw)
 					msg := json.RawMessage(newSettings)
 					config.Settings = &msg
@@ -192,10 +190,9 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 			}
 		}
 
-		// --- 3. BIÊN DỊCH VÀ BỎ QUA NẾU LỖI ---
 		oc, err := config.Build()
 		if err != nil {
-			log.Errorf("Bỏ qua Node bị lỗi cấu hình [Tag: %s, Protocol: %s]: %s", config.Tag, config.Protocol, err)
+			log.Errorf("Bỏ qua Node lỗi [Tag: %s]: %s", config.Tag, err)
 			continue
 		}
 		outBoundConfig = append(outBoundConfig, oc)
