@@ -126,69 +126,70 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 
 	var outBoundConfig []*core.OutboundHandlerConfig
 	for i := range coreCustomOutboundConfig {
-		config := &coreCustomOutboundConfig[i] // Lấy con trỏ để dễ dàng sửa cấu hình bên trong
+		config := &coreCustomOutboundConfig[i] // Lấy con trỏ để dễ dàng sửa cấu hình
 
-		// --- 1. BẮT ĐẦU SỬA LỖI (CHỐNG PANIC UDP) ---
+		// --- 1. XỬ LÝ LỖI "UNKNOWN TRANSPORT UDP" ---
 		if config.StreamSetting != nil && config.StreamSetting.Network != nil {
 			if string(*config.StreamSetting.Network) == "udp" {
 				tcpNet := conf.TransportProtocol("tcp")
-				config.StreamSetting.Network = &tcpNet // Ép udp thành tcp để Xray không bị sập
+				config.StreamSetting.Network = &tcpNet // Ép về TCP ảo để qua mặt Xray
 			}
 		}
 
-		// --- 2. CHIỀU CHUỘNG HYSTERIA (Bơm Version 2 và cấu trúc chuẩn) ---
+		// --- 2. BĂM NHỎ JSON CỦA PANEL THÀNH JSON CHUẨN CỦA XRAY ---
 		if config.Protocol == "hysteria2" || config.Protocol == "hysteria" {
-			config.Protocol = "hysteria" // Lõi Xray chỉ nhận tên "hysteria"
+			config.Protocol = "hysteria" // Đổi tên cho Xray nhận diện
 
 			if config.Settings != nil {
 				var raw map[string]interface{}
 				if err := json.Unmarshal(*config.Settings, &raw); err == nil {
-					// Bơm thẳng version = 2 vào JSON để core không báo lỗi version != 2
+					// Bơm phiên bản 2
 					raw["version"] = 2
 
-					// Moi thông tin Address, Port, Password từ trong mảng Servers ra ngoài cùng
+					// Lôi dữ liệu từ trong mảng servers[0] ra ngoài
 					if servers, ok := raw["servers"].([]interface{}); ok && len(servers) > 0 {
 						if srv, ok := servers[0].(map[string]interface{}); ok {
+
+							// Lấy IP, Port, Password
 							if addr, exists := srv["address"]; exists {
 								raw["address"] = addr
 							}
 							if port, exists := srv["port"]; exists {
 								raw["port"] = port
 							}
-
-							// Core bản này nhận mật khẩu bằng từ khóa "auth"
 							if pwd, exists := srv["password"]; exists {
-								raw["auth"] = pwd
+								raw["password"] = pwd
+								raw["auth"] = pwd // Dự phòng cho core dùng từ khóa auth
 							}
 
-							// --- ĐOẠN QUAN TRỌNG NHẤT ĐỂ CÓ MẠNG (XỬ LÝ OBFS) ---
+							// Lấy thông số OBFS (Salamander)
 							if obfsRaw, exists := srv["obfs"]; exists {
 								if obfs, ok := obfsRaw.(map[string]interface{}); ok {
 									if obfsType, exists := obfs["type"]; exists {
 										raw["obfs"] = obfsType
 									}
 									if obfsPwd, exists := obfs["password"]; exists {
-										raw["obfsPassword"] = obfsPwd  // Chuẩn của Xray-core
-										raw["obfs_password"] = obfsPwd // Dự phòng
+										raw["obfsPassword"] = obfsPwd // Từ khóa chuẩn bắt buộc của Xray
 									}
 								}
 							}
-							// ----------------------------------------------------
 						}
 					}
 
-					// Đóng gói JSON lại sau khi đã "mông má"
+					// Dọn dẹp mảng servers cũ đi để JSON nhẹ và chuẩn
+					delete(raw, "servers")
+
+					// Đóng gói lại thành cấu hình Settings mới
 					newSettings, _ := json.Marshal(raw)
 					msg := json.RawMessage(newSettings)
 					config.Settings = &msg
 				}
 			}
 		}
-		// --- KẾT THÚC ĐOẠN SỬA LỖI ---
 
+		// --- 3. BIÊN DỊCH VÀ BỎ QUA NẾU LỖI ---
 		oc, err := config.Build()
 		if err != nil {
-			// log.Errorf giúp bỏ qua Node lỗi thay vì kéo sập toàn bộ hệ thống
 			log.Errorf("Bỏ qua Node bị lỗi cấu hình [Tag: %s, Protocol: %s]: %s", config.Tag, config.Protocol, err)
 			continue
 		}
