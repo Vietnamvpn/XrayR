@@ -128,20 +128,53 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 	for i := range coreCustomOutboundConfig {
 		config := &coreCustomOutboundConfig[i] // Lấy con trỏ để dễ dàng sửa cấu hình bên trong
 
-		// --- BẮT ĐẦU ĐOẠN SỬA LỖI (CHỐNG PANIC UDP) ---
+		// --- 1. BẮT ĐẦU SỬA LỖI (CHỐNG PANIC UDP) ---
 		if config.StreamSetting != nil && config.StreamSetting.Network != nil {
 			if string(*config.StreamSetting.Network) == "udp" {
 				tcpNet := conf.TransportProtocol("tcp")
 				config.StreamSetting.Network = &tcpNet // Ép udp thành tcp để Xray không bị sập
 			}
 		}
+
+		// --- 2. CHIỀU CHUỘNG HYSTERIA (Bơm Version 2 và cấu trúc chuẩn) ---
+		if config.Protocol == "hysteria2" || config.Protocol == "hysteria" {
+			config.Protocol = "hysteria" // Lõi Xray chỉ nhận tên "hysteria"
+
+			if config.Settings != nil {
+				var raw map[string]interface{}
+				if err := json.Unmarshal(*config.Settings, &raw); err == nil {
+					// Bơm thẳng version = 2 vào JSON để core không báo lỗi version != 2
+					raw["version"] = 2
+
+					// Moi thông tin Address, Port, Password từ trong mảng Servers ra ngoài cùng
+					if servers, ok := raw["servers"].([]interface{}); ok && len(servers) > 0 {
+						if srv, ok := servers[0].(map[string]interface{}); ok {
+							if addr, exists := srv["address"]; exists {
+								raw["address"] = addr
+							}
+							if port, exists := srv["port"]; exists {
+								raw["port"] = port
+							}
+
+							// Core bản này nhận mật khẩu bằng từ khóa "auth"
+							if pwd, exists := srv["password"]; exists {
+								raw["auth"] = pwd
+							}
+						}
+					}
+
+					// Đóng gói JSON lại sau khi đã "mông má"
+					newSettings, _ := json.Marshal(raw)
+					msg := json.RawMessage(newSettings)
+					config.Settings = &msg
+				}
+			}
+		}
 		// --- KẾT THÚC ĐOẠN SỬA LỖI ---
 
 		oc, err := config.Build()
 		if err != nil {
-			// SỬA log.Panicf THÀNH log.Errorf
-			// Giờ đây nếu 1 node (ví dụ Hysteria) bị lỗi, nó chỉ báo lỗi màu đỏ rồi bỏ qua,
-			// XrayR VẪN TIẾP TỤC CHẠY các node VLESS/Trojan khác bình thường.
+			// log.Errorf giúp bỏ qua Node lỗi thay vì kéo sập toàn bộ hệ thống
 			log.Errorf("Bỏ qua Node bị lỗi cấu hình [Tag: %s, Protocol: %s]: %s", config.Tag, config.Protocol, err)
 			continue
 		}
