@@ -7,8 +7,8 @@ import (
 	_ "github.com/xtls/xray-core/app/proxyman/outbound"
 
 	// Required features. Can't remove unless there is replacements.
-	// _ "github.com/xtls/xray-core/app/dispatcher"
 	_ "github.com/Vietnamvpn/XrayR/app/mydispatcher"
+	_ "github.com/xtls/xray-core/app/dispatcher"
 
 	// Default commander and all its services. This is an optional feature.
 	_ "github.com/xtls/xray-core/app/commander"
@@ -35,9 +35,13 @@ import (
 	_ "github.com/xtls/xray-core/proxy/shadowsocks"
 	_ "github.com/xtls/xray-core/proxy/shadowsocks_2022"
 	_ "github.com/xtls/xray-core/proxy/socks"
+
 	_ "github.com/xtls/xray-core/proxy/trojan"
 	_ "github.com/xtls/xray-core/proxy/vless/inbound"
 	_ "github.com/xtls/xray-core/proxy/vless/outbound"
+
+	_ "github.com/xtls/xray-core/proxy/hysteria"
+	_ "github.com/xtls/xray-core/proxy/tun"
 	_ "github.com/xtls/xray-core/proxy/vmess/inbound"
 	_ "github.com/xtls/xray-core/proxy/vmess/outbound"
 	_ "github.com/xtls/xray-core/proxy/wireguard"
@@ -55,11 +59,8 @@ import (
 	// Transport headers
 	_ "github.com/xtls/xray-core/transport/internet/headers/http"
 	_ "github.com/xtls/xray-core/transport/internet/headers/noop"
-	_ "github.com/xtls/xray-core/transport/internet/headers/srtp"
-	_ "github.com/xtls/xray-core/transport/internet/headers/tls"
-	_ "github.com/xtls/xray-core/transport/internet/headers/utp"
-	_ "github.com/xtls/xray-core/transport/internet/headers/wechat"
-	_ "github.com/xtls/xray-core/transport/internet/headers/wireguard"
+
+	// Đã xóa các header lỗi thời theo chuẩn xray-core mới: srtp, tls, utp, wechat, wireguard
 
 	// JSON & TOML & YAML
 	_ "github.com/xtls/xray-core/main/json"
