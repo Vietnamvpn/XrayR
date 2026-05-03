@@ -128,66 +128,93 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 	for i := range coreCustomOutboundConfig {
 		config := &coreCustomOutboundConfig[i]
 
-		// --- 1. XỬ LÝ NETWORK (GIỮ NGUYÊN TLS ĐỂ CÓ SNI) ---
-		if config.StreamSetting != nil {
-			if config.Protocol == "hysteria2" || config.Protocol == "hysteria" {
-				// Chỉ xóa cái ép kiểu Network (để nó tự chạy UDP/QUIC), KHÔNG xóa cả StreamSetting
-				config.StreamSetting.Network = nil
-
-				// Ép ALPN là h3 để khớp với server Hysteria2
-				if config.StreamSetting.TLSSettings != nil {
-					alpn := conf.StringList([]string{"h3"})
-					config.StreamSetting.TLSSettings.ALPN = &alpn
-				}
-			} else if config.StreamSetting.Network != nil && string(*config.StreamSetting.Network) == "udp" {
-				// Chống Panic cho VLESS/Trojan
-				tcpNet := conf.TransportProtocol("tcp")
-				config.StreamSetting.Network = &tcpNet
-			}
-		}
-
-		// --- 2. MAP LẠI JSON SETTINGS CHO ĐÚNG CHUẨN CORE ---
 		if config.Protocol == "hysteria2" || config.Protocol == "hysteria" {
+			// --- 1. CHUẨN HOÁ GIAO THỨC ---
 			config.Protocol = "hysteria"
 
+			var address string
+			var port interface{}
+			var authPass string
+
+			// --- 2. HÚT THÔNG SỐ TỪ SETTINGS MẢNG SERVERS CŨ ---
 			if config.Settings != nil {
 				var raw map[string]interface{}
 				if err := json.Unmarshal(*config.Settings, &raw); err == nil {
-					raw["version"] = 2 // Bơm version 2
-
 					if servers, ok := raw["servers"].([]interface{}); ok && len(servers) > 0 {
 						if srv, ok := servers[0].(map[string]interface{}); ok {
-							// Map Password sang Auth
 							if pwd, exists := srv["password"]; exists {
-								raw["auth"] = pwd
+								authPass, _ = pwd.(string)
 							}
-							// Map IP và Port ra ngoài
 							if addr, exists := srv["address"]; exists {
-								raw["address"] = addr
+								address, _ = addr.(string)
 							}
-							if port, exists := srv["port"]; exists {
-								raw["port"] = port
-							}
-
-							// Xử lý OBFS Salamander
-							if obfsRaw, exists := srv["obfs"]; exists {
-								if obfs, ok := obfsRaw.(map[string]interface{}); ok {
-									if t, ex := obfs["type"]; ex {
-										raw["obfs"] = t
-									}
-									if p, ex := obfs["password"]; ex {
-										raw["obfsPassword"] = p
-									}
-								}
+							if p, exists := srv["port"]; exists {
+								port = p
 							}
 						}
 					}
-					// KHÔNG dùng delete(raw, "servers") để tránh lỗi mất dữ liệu
-					newSettings, _ := json.Marshal(raw)
-					msg := json.RawMessage(newSettings)
-					config.Settings = &msg
 				}
 			}
+
+			// --- 3. ĐỊNH DẠNG LẠI SETTINGS GỐC (Loại bỏ mảng servers) ---
+			newSettings := map[string]interface{}{
+				"address": address,
+				"port":    port,
+				"version": 2,
+			}
+			newSettingsBytes, _ := json.Marshal(newSettings)
+			msgSettings := json.RawMessage(newSettingsBytes)
+			config.Settings = &msgSettings
+
+			// --- 4. CẬP NHẬT CHÍNH XÁC STREAM SETTINGS ---
+			if config.StreamSetting != nil {
+				netStr := conf.TransportProtocol("hysteria")
+				config.StreamSetting.Network = &netStr
+				config.StreamSetting.Security = "tls"
+
+				// Khởi tạo TLS Settings nếu chưa có
+				if config.StreamSetting.TLSSettings == nil {
+					config.StreamSetting.TLSSettings = &conf.TLSConfig{}
+				}
+
+				// 4.1. ALPN rỗng và Fingerprint (Đã sửa lỗi kiểu chuỗi)
+				emptyAlpn := conf.StringList([]string{})
+				config.StreamSetting.TLSSettings.ALPN = &emptyAlpn
+				config.StreamSetting.TLSSettings.Fingerprint = "chrome"
+
+				// 4.2. Khai báo các trường trống (Đã sửa lỗi kiểu chuỗi)
+				config.StreamSetting.TLSSettings.ECHConfigList = ""
+				config.StreamSetting.TLSSettings.VerifyPeerCertByName = ""
+				config.StreamSetting.TLSSettings.PinnedPeerCertSha256 = ""
+
+				// 4.3. Bơm thông số HysteriaSettings cực kỳ chi tiết
+				hysteriaMap := map[string]interface{}{
+					"version":                     2,
+					"auth":                        authPass,
+					"congestion":                  "",
+					"up":                          "0",
+					"down":                        "0",
+					"initStreamReceiveWindow":     8388608,
+					"maxStreamReceiveWindow":      8388608,
+					"initConnectionReceiveWindow": 20971520,
+					"maxConnectionReceiveWindow":  20971520,
+					"maxIdleTimeout":              30,
+					"keepAlivePeriod":             0,
+					"disablePathMTUDiscovery":     false,
+				}
+				hysteriaBytes, _ := json.Marshal(hysteriaMap)
+
+				// ĐÃ SỬA LỖI: Ép dữ liệu an toàn vào struct conf.HysteriaConfig của Xray
+				var hConfig conf.HysteriaConfig
+				if err := json.Unmarshal(hysteriaBytes, &hConfig); err == nil {
+					config.StreamSetting.HysteriaSettings = &hConfig
+				}
+			}
+
+		} else if config.StreamSetting != nil && config.StreamSetting.Network != nil && string(*config.StreamSetting.Network) == "udp" {
+			// --- XỬ LÝ CHỐNG PANIC CHO VLESS/TROJAN ---
+			tcpNet := conf.TransportProtocol("tcp")
+			config.StreamSetting.Network = &tcpNet
 		}
 
 		oc, err := config.Build()
