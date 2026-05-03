@@ -135,8 +135,10 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 			var address string
 			var port interface{}
 			var authPass string
+			var obfsType string
+			var obfsPass string
 
-			// --- 2. HÚT THÔNG SỐ TỪ SETTINGS MẢNG SERVERS CŨ ---
+			// --- 2. HÚT THÔNG SỐ (Bao gồm cả OBFS) ---
 			if config.Settings != nil {
 				var raw map[string]interface{}
 				if err := json.Unmarshal(*config.Settings, &raw); err == nil {
@@ -151,12 +153,24 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 							if p, exists := srv["port"]; exists {
 								port = p
 							}
+
+							// Xử lý OBFS Salamander
+							if obfsRaw, exists := srv["obfs"]; exists {
+								if obfsData, ok := obfsRaw.(map[string]interface{}); ok {
+									if t, ex := obfsData["type"]; ex {
+										obfsType, _ = t.(string)
+									}
+									if p, ex := obfsData["password"]; ex {
+										obfsPass, _ = p.(string)
+									}
+								}
+							}
 						}
 					}
 				}
 			}
 
-			// --- 3. ĐỊNH DẠNG LẠI SETTINGS GỐC (Loại bỏ mảng servers) ---
+			// --- 3. ĐỊNH DẠNG LẠI SETTINGS GỐC ---
 			newSettings := map[string]interface{}{
 				"address": address,
 				"port":    port,
@@ -172,25 +186,24 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 				config.StreamSetting.Network = &netStr
 				config.StreamSetting.Security = "tls"
 
-				// Khởi tạo TLS Settings nếu chưa có
 				if config.StreamSetting.TLSSettings == nil {
 					config.StreamSetting.TLSSettings = &conf.TLSConfig{}
 				}
 
-				// 4.1. ALPN rỗng và Fingerprint (Đã sửa lỗi kiểu chuỗi)
+				// 4.1. ALPN rỗng và Fingerprint
 				emptyAlpn := conf.StringList([]string{})
 				config.StreamSetting.TLSSettings.ALPN = &emptyAlpn
 				config.StreamSetting.TLSSettings.Fingerprint = "chrome"
-
-				// 4.2. Khai báo các trường trống (Đã sửa lỗi kiểu chuỗi)
 				config.StreamSetting.TLSSettings.ECHConfigList = ""
 				config.StreamSetting.TLSSettings.VerifyPeerCertByName = ""
 				config.StreamSetting.TLSSettings.PinnedPeerCertSha256 = ""
 
-				// 4.3. Bơm thông số HysteriaSettings cực kỳ chi tiết
+				// 4.2. Bơm thông số HysteriaSettings (Đã thêm OBFS)
 				hysteriaMap := map[string]interface{}{
 					"version":                     2,
 					"auth":                        authPass,
+					"obfs":                        obfsType, // Bơm loại OBFS (salamander)
+					"obfsPassword":                obfsPass, // Bơm mật khẩu OBFS
 					"congestion":                  "",
 					"up":                          "0",
 					"down":                        "0",
@@ -204,7 +217,6 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 				}
 				hysteriaBytes, _ := json.Marshal(hysteriaMap)
 
-				// ĐÃ SỬA LỖI: Ép dữ liệu an toàn vào struct conf.HysteriaConfig của Xray
 				var hConfig conf.HysteriaConfig
 				if err := json.Unmarshal(hysteriaBytes, &hConfig); err == nil {
 					config.StreamSetting.HysteriaSettings = &hConfig
@@ -212,7 +224,6 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 			}
 
 		} else if config.StreamSetting != nil && config.StreamSetting.Network != nil && string(*config.StreamSetting.Network) == "udp" {
-			// --- XỬ LÝ CHỐNG PANIC CHO VLESS/TROJAN ---
 			tcpNet := conf.TransportProtocol("tcp")
 			config.StreamSetting.Network = &tcpNet
 		}
