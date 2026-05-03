@@ -135,8 +135,8 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 			var address string
 			var port interface{}
 			var authPass string
-			var obfsType string
 			var obfsPass string
+			var hasObfs bool
 
 			// --- 2. HÚT THÔNG SỐ (Bao gồm cả OBFS) ---
 			if config.Settings != nil {
@@ -154,14 +154,12 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 								port = p
 							}
 
-							// Xử lý OBFS Salamander
+							// Xử lý OBFS Salamander (Chuẩn bị dữ liệu cho Masquerade)
 							if obfsRaw, exists := srv["obfs"]; exists {
 								if obfsData, ok := obfsRaw.(map[string]interface{}); ok {
-									if t, ex := obfsData["type"]; ex {
-										obfsType, _ = t.(string)
-									}
 									if p, ex := obfsData["password"]; ex {
 										obfsPass, _ = p.(string)
+										hasObfs = true
 									}
 								}
 							}
@@ -198,12 +196,10 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 				config.StreamSetting.TLSSettings.VerifyPeerCertByName = ""
 				config.StreamSetting.TLSSettings.PinnedPeerCertSha256 = ""
 
-				// 4.2. Bơm thông số HysteriaSettings (Đã thêm OBFS)
+				// 4.2. Bơm thông số HysteriaSettings
 				hysteriaMap := map[string]interface{}{
 					"version":                     2,
 					"auth":                        authPass,
-					"obfs":                        obfsType, // Bơm loại OBFS (salamander)
-					"obfsPassword":                obfsPass, // Bơm mật khẩu OBFS
 					"congestion":                  "",
 					"up":                          "0",
 					"down":                        "0",
@@ -215,6 +211,15 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 					"keepAlivePeriod":             0,
 					"disablePathMTUDiscovery":     false,
 				}
+
+				// 4.3. NẾU CÓ OBFS -> ÉP VÀO CHUẨN MASQUERADE CỦA XRAY-CORE
+				if hasObfs {
+					hysteriaMap["masquerade"] = map[string]string{
+						"type":    "salamander",
+						"content": obfsPass,
+					}
+				}
+
 				hysteriaBytes, _ := json.Marshal(hysteriaMap)
 
 				var hConfig conf.HysteriaConfig
@@ -224,6 +229,7 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 			}
 
 		} else if config.StreamSetting != nil && config.StreamSetting.Network != nil && string(*config.StreamSetting.Network) == "udp" {
+			// Fallback an toàn cho các giao thức khác (VLESS, Trojan,...)
 			tcpNet := conf.TransportProtocol("tcp")
 			config.StreamSetting.Network = &tcpNet
 		}
